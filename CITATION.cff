@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "ppflx: privacy-preserving federated learning with HE, ZKP and DP on Flower"
+title: "gnark-gradient-prover: Groth16 proofs of bounded model updates for federated learning"
 message: "If you use this software, please cite it as below."
 type: software
 authors:
@@ -9,7 +9,7 @@ authors:
 license: Apache-2.0
 version: 1.0.0
 date-released: "2026-09-16"
-repository-code: "https://github.com/TxCorpi0x/fl_ppml"
+repository-code: "https://github.com/CorpiXo/gnark-gradient-prover"
 abstract: >-
   A framework and benchmark for privacy-preserving federated learning that
   combines homomorphic encryption, Groth16 zero-knowledge proofs of bounded
