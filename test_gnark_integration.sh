@@ -120,7 +120,10 @@ except Exception:
     raise SystemExit(0)
 proof_b64 = data.get('proof_b64', '')
 hash_hex = data.get('hash_hex', '')
-shape = data.get('shape', [])
+# The verifier checks the proof against the pinned verifying key, so the
+# request has to name the key the proof was made under.
+vk_sha256 = data.get('vk_sha256', '')
+shape = [data.get('circuit_n', 256)]
 if not proof_b64:
     print('__EMPTY_PROOF__')
     raise SystemExit(0)
@@ -128,6 +131,7 @@ out = {
     'layer_name': 'test_layer',
     'proof_b64': proof_b64,
     'hash_hex': hash_hex,
+    'vk_sha256': vk_sha256,
     'shape': shape,
     'bound_sq': '1000000000000'
 }
