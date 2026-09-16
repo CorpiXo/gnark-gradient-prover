@@ -72,13 +72,13 @@ fi
 
 # Test 4: Proof generation
 echo -e "${YELLOW}[Test 4/6]${NC} Testing proof generation (/prove endpoint)..."
-PROOF_REQUEST='{
-    "layer_name": "test_layer_12",
-    "weights_b64": "AAAAAAAAAAA=",
-    "shape": [1],
-    "scale": "1000000",
-    "bound_sq": "1000000000000"
-}'
+# A full-size vector for the pinned norm circuit (the service pads shorter ones).
+PROOF_REQUEST=$(python3 -c "
+import base64, json, struct
+weights = base64.b64encode(b''.join(struct.pack('<q', i % 7) for i in range(256))).decode()
+print(json.dumps({'layer_name': 'test_layer', 'weights_b64': weights, 'shape': [256],
+                  'scale': '1000000', 'bound_sq': '1000000000000'}))
+")
 
 PROOF_RESPONSE=$(curl -s -X POST "${SERVICE_URL}/prove" \
     -H "Content-Type: application/json" \
@@ -90,7 +90,7 @@ if [ -z "${PROOF_RESPONSE}" ]; then
 fi
 
 if echo "${PROOF_RESPONSE}" | grep -q '"proof_b64"'; then
-    PROOF_SIZE=$(echo "${PROOF_RESPONSE}" | grep -o '"proof_b64":"[^"]*"' | wc -c)
+    PROOF_SIZE=$(echo "${PROOF_RESPONSE}" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('proof_b64','')))")
     echo -e "${GREEN}[OK]${NC} Proof generated (response size: ~${PROOF_SIZE} bytes)"
 else
     echo -e "${RED}[FAIL]${NC} Proof generation failed. Response:"
