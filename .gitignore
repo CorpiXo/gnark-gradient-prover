@@ -1,0 +1,10 @@
+# Built service binary
+gnark_service
+
+# Proving keys are never committed; only manifest.json and the .vk files are.
+*.pk
+pk/
+
+# Go
+*.test
+*.out
