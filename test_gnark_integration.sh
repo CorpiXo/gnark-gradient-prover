@@ -12,6 +12,9 @@ SERVICE_DIR="${SCRIPT_DIR}"
 SERVICE_PORT=9000
 SERVICE_URL="http://127.0.0.1:${SERVICE_PORT}"
 SERVICE_LOG="/tmp/gnark_service_test.log"
+VERIFIER_LOG="/tmp/gnark_verifier_test.log"
+VERIFIER_PORT="${VERIFIER_PORT:-9101}"
+VERIFIER_URL="http://127.0.0.1:${VERIFIER_PORT}"
 
 # Colors
 RED='\033[0;31m'
@@ -39,15 +42,22 @@ echo -e "${YELLOW}[Test 2/6]${NC} Starting gnark proof service on port ${SERVICE
 "${SERVICE_DIR}/gnark_service" serve --role prover --keys-dir "${SERVICE_DIR}/keys" \
     --pk-dir "${FL_ZKP_PK_DIR:-$HOME/.cache/fl_ppml/gnark_pk}" --port "${SERVICE_PORT}" > "${SERVICE_LOG}" 2>&1 &
 SERVICE_PID=$!
+# The verifier is a separate role and the only one that exposes /verify_light;
+# it never receives proving keys.
+"${SERVICE_DIR}/gnark_service" serve --role verifier --keys-dir "${SERVICE_DIR}/keys" \
+    --port "${VERIFIER_PORT}" > "${VERIFIER_LOG}" 2>&1 &
+VERIFIER_PID=$!
 sleep 2
 
 # Cleanup function
 cleanup() {
-    if [ -n "${SERVICE_PID}" ] && kill -0 "${SERVICE_PID}" 2>/dev/null; then
-        echo -e "${YELLOW}[Cleanup]${NC} Stopping service (PID ${SERVICE_PID})..."
-        kill ${SERVICE_PID} 2>/dev/null || true
-        sleep 1
-    fi
+    for pid in "${SERVICE_PID}" "${VERIFIER_PID}"; do
+        if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+            echo -e "${YELLOW}[Cleanup]${NC} Stopping service (PID ${pid})..."
+            kill ${pid} 2>/dev/null || true
+        fi
+    done
+    sleep 1
 }
 trap cleanup EXIT
 
@@ -137,11 +147,11 @@ if [ "${PROOF_JSON}" = "__INVALID_JSON__" ]; then
     exit 1
 fi
 
-VERIFY_RESPONSE=$(curl -s -X POST "${SERVICE_URL}/verify_light" \
+VERIFY_RESPONSE=$(curl -s -X POST "${VERIFIER_URL}/verify_light" \
     -H "Content-Type: application/json" \
     -d "${PROOF_JSON}" 2>/dev/null || echo "{}")
 
-if echo "${VERIFY_RESPONSE}" | grep -q '"verified":true'; then
+if echo "${VERIFY_RESPONSE}" | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('verified') else 1)" 2>/dev/null; then
     echo -e "${GREEN}[OK]${NC} Proof verified successfully"
 else
     echo -e "${YELLOW}~${NC} Proof verification responded (may need witness): ${VERIFY_RESPONSE:0:100}..."
