@@ -3,9 +3,10 @@ title: "gnark-gradient-prover: Groth16 proofs of bounded model updates for feder
 message: "If you use this software, please cite it as below."
 type: software
 authors:
+  - given-names: Mehdi
+    family-names: Valinejad
+    orcid: "https://orcid.org/0009-0006-9154-9606"
   - name: "CorpiXo"
-    # Add the individual author entry here (given-names / family-names / orcid)
-    # so academic citations name a person as well as the organisation.
 license: Apache-2.0
 version: 1.0.0
 date-released: "2026-09-16"
