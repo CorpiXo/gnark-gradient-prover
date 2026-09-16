@@ -100,22 +100,22 @@ fi
 
 # Test 5: Proof verification
 echo -e "${YELLOW}[Test 5/6]${NC} Testing proof verification (/verify endpoint)..."
-PROOF_JSON=$(python3 - <<'PY'
-import sys, json
-raw = sys.stdin.read()
+PROOF_JSON=$(PROOF_RESPONSE="${PROOF_RESPONSE}" python3 - <<'PY'
+import os, json
+raw = os.environ.get('PROOF_RESPONSE', '')
 try:
     data = json.loads(raw) if raw.strip() else {}
 except Exception:
     print('__INVALID_JSON__')
-    sys.exit(0)
+    raise SystemExit(0)
 proof_b64 = data.get('proof_b64', '')
 hash_hex = data.get('hash_hex', '')
 shape = data.get('shape', [])
 if not proof_b64:
     print('__EMPTY_PROOF__')
-    sys.exit(0)
+    raise SystemExit(0)
 out = {
-    'layer_name': 'test_layer_12',
+    'layer_name': 'test_layer',
     'proof_b64': proof_b64,
     'hash_hex': hash_hex,
     'shape': shape,
@@ -123,7 +123,7 @@ out = {
 }
 print(json.dumps(out))
 PY
-<<<"${PROOF_RESPONSE}")
+)
 
 if [ "${PROOF_JSON}" = "__EMPTY_PROOF__" ]; then
     echo -e "${RED}[FAIL]${NC} Extracted empty proof_b64 from response; raw response:"
