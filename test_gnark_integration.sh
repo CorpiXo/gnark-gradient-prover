@@ -69,6 +69,16 @@ if [ -n "${MISSING_PK}" ]; then
 fi
 echo -e "${GREEN}[OK]${NC} Keys: manifest in ${KEYS_DIR}, proving keys in ${PK_DIR}"
 
+# Another service on these ports would answer the health checks and the
+# requests below in place of the roles this script starts.
+for port in "${SERVICE_PORT}" "${VERIFIER_PORT}"; do
+    if curl -s -o /dev/null "http://127.0.0.1:${port}/health" 2>/dev/null; then
+        echo -e "${RED}[FAIL]${NC} Port ${port} is already in use; stop that service first (lsof -nP -iTCP:${port} -sTCP:LISTEN)."
+        exit 1
+    fi
+done
+MANIFEST_SHA256=$(python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "${KEYS_DIR}/manifest.json")
+
 # Test 2: Start service
 echo -e "${YELLOW}[Test 2/6]${NC} Starting gnark prover on port ${SERVICE_PORT} and verifier on port ${VERIFIER_PORT}..."
 "${SERVICE_DIR}/gnark_service" serve --role prover --keys-dir "${KEYS_DIR}" \
@@ -102,8 +112,14 @@ wait_for_role() {
             cat "${log}"
             return 1
         fi
-        if curl -sf "${url}/health" >/dev/null 2>&1; then
-            return 0
+        local health
+        if health=$(curl -sf "${url}/health" 2>/dev/null); then
+            # Only this role under this manifest counts as started.
+            if HEALTH="${health}" python3 -c "import json,os,sys; h=json.loads(os.environ['HEALTH']); sys.exit(0 if h.get('role')==sys.argv[1] and h.get('manifest_sha256')==sys.argv[2] else 1)" "${name}" "${MANIFEST_SHA256}"; then
+                return 0
+            fi
+            echo -e "${RED}[FAIL]${NC} ${url} is not a ${name} under ${KEYS_DIR}/manifest.json: ${health}"
+            return 1
         fi
         sleep 1
     done
