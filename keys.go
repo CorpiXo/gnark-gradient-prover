@@ -144,9 +144,21 @@ func runSetup(args []string) error {
 	if *pkDir == "" {
 		return fmt.Errorf("--pk-dir is required")
 	}
+	circuits := []struct {
+		id string
+		n  int
+	}{{normCircuitID, *normN}, {elgamalCircuitID, *elgamalN}}
 	manifestPath := filepath.Join(*keysDir, manifestFile)
 	if _, err := os.Stat(manifestPath); err == nil && !*force {
 		return fmt.Errorf("%s exists; pass --force to replace the pinned keys", manifestPath)
+	}
+	// Proving keys are checked too: a setup into an existing cache would
+	// replace keys that another manifest still pins.
+	for _, c := range circuits {
+		pkPath := filepath.Join(*pkDir, fmt.Sprintf("%s-%d.pk", c.id, c.n))
+		if _, err := os.Stat(pkPath); err == nil && !*force {
+			return fmt.Errorf("%s exists; pass --force to replace it, or use an empty --pk-dir", pkPath)
+		}
 	}
 	if err := os.MkdirAll(*keysDir, 0o755); err != nil {
 		return err
@@ -165,10 +177,7 @@ func runSetup(args []string) error {
 			"The setup randomness existed in that process's memory and is not recoverable from these files, " +
 			"but nothing proves it was destroyed. See docs/ZKP.md, section 7.3.",
 	}
-	for _, c := range []struct {
-		id string
-		n  int
-	}{{normCircuitID, *normN}, {elgamalCircuitID, *elgamalN}} {
+	for _, c := range circuits {
 		start := time.Now()
 		cs, err := compileCircuit(c.id, c.n)
 		if err != nil {
@@ -250,7 +259,8 @@ func loadStore(role, keysDir, pkDir string) (*keyStore, error) {
 			}
 			b, err := os.ReadFile(filepath.Join(pkDir, e.PKFile))
 			if err != nil {
-				return nil, fmt.Errorf("%w (restore the proving-key cache, or rerun setup, which replaces the pinned verifying keys)", err)
+				return nil, fmt.Errorf("%w (proving keys are never committed: point --pk-dir at the ones made with this manifest, "+
+					"or make a local key set with `gnark_service setup --keys-dir DIR --pk-dir DIR` into new directories and serve from those)", err)
 			}
 			if got := sha256Hex(b); got != e.PKSHA256 {
 				return nil, fmt.Errorf("%s: SHA-256 %s does not match manifest %s; it belongs to a different setup", e.PKFile, got, e.PKSHA256)
