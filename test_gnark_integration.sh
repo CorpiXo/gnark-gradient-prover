@@ -15,6 +15,16 @@ SERVICE_LOG="/tmp/gnark_service_test.log"
 VERIFIER_LOG="/tmp/gnark_verifier_test.log"
 VERIFIER_PORT="${VERIFIER_PORT:-9101}"
 VERIFIER_URL="http://127.0.0.1:${VERIFIER_PORT}"
+# Both roles load the same manifest and verifying keys; only the prover gets
+# proving keys. Defaults: the pinned keys in this repository, and the local
+# proving-key cache.
+KEYS_DIR="${FL_ZKP_KEYS_DIR:-${SCRIPT_DIR}/keys}"
+PK_DIR="${FL_ZKP_PK_DIR:-$HOME/.cache/ppflx/pk}"
+# The Python client (Test 6) reads the manifest from the same place.
+export FL_ZKP_KEYS_DIR="${KEYS_DIR}" FL_ZKP_PK_DIR="${PK_DIR}"
+SETUP_HINT="Proving keys are never committed. For a local key set outside the repository:
+    ${SERVICE_DIR}/gnark_service setup --keys-dir ~/.cache/ppflx/keys --pk-dir ~/.cache/ppflx/pk
+    export FL_ZKP_KEYS_DIR=~/.cache/ppflx/keys FL_ZKP_PK_DIR=~/.cache/ppflx/pk"
 
 # Colors
 RED='\033[0;31m'
@@ -36,18 +46,39 @@ else
     exit 1
 fi
 
+# Fail before starting anything if the keys are not there: the manifest in
+# KEYS_DIR and every proving key it names in PK_DIR. The services check the
+# hashes themselves when they load.
+if [ ! -f "${KEYS_DIR}/manifest.json" ]; then
+    echo -e "${RED}[FAIL]${NC} No key manifest at ${KEYS_DIR}/manifest.json."
+    echo "${SETUP_HINT}"
+    exit 1
+fi
+MISSING_PK=$(python3 - "${KEYS_DIR}/manifest.json" "${PK_DIR}" <<'PY'
+import json, os, sys
+manifest, pk_dir = sys.argv[1], sys.argv[2]
+for entry in json.load(open(manifest))["circuits"]:
+    if not os.path.isfile(os.path.join(pk_dir, entry["pk_file"])):
+        print(entry["pk_file"])
+PY
+) || { echo -e "${RED}[FAIL]${NC} Could not read ${KEYS_DIR}/manifest.json"; exit 1; }
+if [ -n "${MISSING_PK}" ]; then
+    echo -e "${RED}[FAIL]${NC} Proving keys missing from ${PK_DIR}:" ${MISSING_PK}
+    echo "${SETUP_HINT}"
+    exit 1
+fi
+echo -e "${GREEN}[OK]${NC} Keys: manifest in ${KEYS_DIR}, proving keys in ${PK_DIR}"
+
 # Test 2: Start service
-echo -e "${YELLOW}[Test 2/6]${NC} Starting gnark proof service on port ${SERVICE_PORT}..."
-# Needs pinned keys from: gnark_service setup --keys-dir zkp_gnark_service/keys --pk-dir ~/.cache/fl_ppml/gnark_pk
-"${SERVICE_DIR}/gnark_service" serve --role prover --keys-dir "${SERVICE_DIR}/keys" \
-    --pk-dir "${FL_ZKP_PK_DIR:-$HOME/.cache/fl_ppml/gnark_pk}" --port "${SERVICE_PORT}" > "${SERVICE_LOG}" 2>&1 &
+echo -e "${YELLOW}[Test 2/6]${NC} Starting gnark prover on port ${SERVICE_PORT} and verifier on port ${VERIFIER_PORT}..."
+"${SERVICE_DIR}/gnark_service" serve --role prover --keys-dir "${KEYS_DIR}" \
+    --pk-dir "${PK_DIR}" --port "${SERVICE_PORT}" > "${SERVICE_LOG}" 2>&1 &
 SERVICE_PID=$!
 # The verifier is a separate role and the only one that exposes /verify_light;
 # it never receives proving keys.
-"${SERVICE_DIR}/gnark_service" serve --role verifier --keys-dir "${SERVICE_DIR}/keys" \
+"${SERVICE_DIR}/gnark_service" serve --role verifier --keys-dir "${KEYS_DIR}" \
     --port "${VERIFIER_PORT}" > "${VERIFIER_LOG}" 2>&1 &
 VERIFIER_PID=$!
-sleep 2
 
 # Cleanup function
 cleanup() {
@@ -61,13 +92,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Check if service started
-if ! kill -0 "${SERVICE_PID}" 2>/dev/null; then
-    echo -e "${RED}[FAIL]${NC} Service failed to start. Log output:"
-    cat "${SERVICE_LOG}"
-    exit 1
-fi
-echo -e "${GREEN}[OK]${NC} Service started (PID ${SERVICE_PID})"
+# A role answers /health only once its keys have loaded, which takes a while
+# for the ElGamal proving key. Wait for both, and stop if either exits.
+wait_for_role() {
+    local name="$1" pid="$2" url="$3" log="$4"
+    for _ in $(seq 1 "${SERVICE_START_TIMEOUT:-180}"); do
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            echo -e "${RED}[FAIL]${NC} ${name} exited during startup. Log output:"
+            cat "${log}"
+            return 1
+        fi
+        if curl -sf "${url}/health" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo -e "${RED}[FAIL]${NC} ${name} did not answer /health in time. Log output:"
+    tail -20 "${log}"
+    return 1
+}
+wait_for_role prover "${SERVICE_PID}" "${SERVICE_URL}" "${SERVICE_LOG}" || exit 1
+wait_for_role verifier "${VERIFIER_PID}" "${VERIFIER_URL}" "${VERIFIER_LOG}" || exit 1
+echo -e "${GREEN}[OK]${NC} Prover (PID ${SERVICE_PID}) and verifier (PID ${VERIFIER_PID}) started"
 
 # Test 3: Health check
 echo -e "${YELLOW}[Test 3/6]${NC} Testing service health endpoint..."
@@ -158,7 +204,9 @@ VERIFY_RESPONSE=$(curl -s -X POST "${VERIFIER_URL}/verify_light" \
 if echo "${VERIFY_RESPONSE}" | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin).get('verified') else 1)" 2>/dev/null; then
     echo -e "${GREEN}[OK]${NC} Proof verified successfully"
 else
-    echo -e "${YELLOW}~${NC} Proof verification responded (may need witness): ${VERIFY_RESPONSE:0:100}..."
+    echo -e "${RED}[FAIL]${NC} Proof did not verify. Response:"
+    echo "${VERIFY_RESPONSE}"
+    exit 1
 fi
 
 # Test 6: Python integration (optional; the client library is a separate package)
@@ -172,11 +220,11 @@ fi
 echo -e "${YELLOW}[Test 6/6]${NC} Testing Python gnark client library..."
 cd "${PROJECT_ROOT}"
 
-PYTHON_TEST=$(python3 << 'EOF'
+PYTHON_TEST=$(SERVICE_URL="${SERVICE_URL}" python3 << 'EOF'
 import sys
 import os
 sys.path.insert(0, '.')
-os.environ['FL_ZKP_PROVER_URL'] = 'http://127.0.0.1:9000'
+os.environ['FL_ZKP_PROVER_URL'] = os.environ['SERVICE_URL']
 
 try:
     from ppflx.core.zkp_gnark import generate_gnark_proofs
@@ -206,8 +254,9 @@ if echo "${PYTHON_TEST}" | grep -q "SUCCESS"; then
     PROOF_BYTES=$(echo "${PYTHON_TEST}" | grep "Total size" | grep -o "[0-9]*" | head -1)
     echo -e "${GREEN}[OK]${NC} Python integration working (${LAYER_COUNT} proofs, ${PROOF_BYTES} bytes total)"
 else
-    echo -e "${YELLOW}~${NC} Python test output:"
+    echo -e "${RED}[FAIL]${NC} Python client test failed. Output:"
     echo "${PYTHON_TEST}"
+    exit 1
 fi
 
 # Summary
@@ -221,10 +270,10 @@ echo "║  Proof Generation: ${GREEN}[OK] Working${NC}                   ║"
 echo "║  Proof Verification: ${GREEN}[OK] Working${NC}                 ║"
 echo "║  Python Client:    ${GREEN}[OK] Connected${NC}                 ║"
 echo "║                                                                ║"
-echo "║  Next: Run FL with gnark backend                               ║"
+echo "║  Next: run the ZKP modes from ppflx-bench                      ║"
 echo "║                                                                ║"
-echo "║    export FL_ZKP_BACKEND=gnark                                 ║"
-echo "║    python -m ppflx_bench.launch --mode zkp --num-rounds 3               ║"
+echo "║    export FL_GNARK_BINARY=${SERVICE_DIR}/gnark_service"
+echo "║    python compare.py --dataset healthcare --modes zkp          ║"
 echo "║                                                                ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
