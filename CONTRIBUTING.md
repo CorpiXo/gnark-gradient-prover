@@ -2,7 +2,7 @@
 
 Thanks for your interest. This project implements cryptographic protocols, so
 contributions are held to a stricter standard than the average Python library:
-a claim about what a mode guarantees has to be backed by a test.
+a claim about what a circuit or a key check guarantees has to be backed by a test.
 
 ## Contributor Licence Agreement
 
@@ -14,22 +14,31 @@ contributor. You keep the copyright in your own work.
 
 ## Development setup
 
-Python 3.12 is required (Concrete-ML needs < 3.13, Flower 1.36 needs > 3.11).
+Go 1.26 or later (see `go.mod`).
 
 ```bash
-conda create -n ppflx python=3.12 -y && conda activate ppflx
-pip install -r requirements.txt
-python -m ppflx.keys generate he_tenseal        # HE keys
-python -m ppflx.keys generate dp --output keys/dp/dp_params.json
-cd zkp_gnark_service && go build -o gnark_service .   # proof service
+go build -o gnark_service .
+go test ./...
+```
+
+The tests run setup on small circuits in temporary directories; they never
+touch `keys/`. For the integration script, make a local key set outside the
+repository first (see [README.md](README.md#local-keys-for-benchmarks-and-development)):
+
+```bash
+./gnark_service setup --keys-dir ~/.cache/ppflx/keys --pk-dir ~/.cache/ppflx/pk
+export FL_ZKP_KEYS_DIR=~/.cache/ppflx/keys FL_ZKP_PK_DIR=~/.cache/ppflx/pk
+./test_gnark_integration.sh
 ```
 
 ## Before opening a pull request
 
-1. `pytest tests` passes (the ZKP tests skip without the proof service binary).
-2. `go test ./...` passes in `zkp_gnark_service/` if you touched Go code.
-3. If you changed a privacy mode, the strategy or the harness, run the modes
-   your change affects end to end and say so in the pull request:
+1. `go test ./...` passes and `gofmt -l .` prints nothing.
+2. If you changed a circuit, the key format or an endpoint, run
+   `./test_gnark_integration.sh` against a fresh local key set.
+3. A circuit change or a re-keying changes the pinned keys in `keys/`: update
+   the copy in ppflx (`ppflx/core/gnark_keys_data/`) in the same set of pull
+   requests, and run the affected ZKP modes from ppflx-bench end to end:
    `python compare.py --dataset healthcare --modes <modes> --rounds 2 --num-clients 2`
 4. New behaviour in a security-relevant path comes with a test that fails
    without your change.
@@ -44,8 +53,8 @@ cd zkp_gnark_service && go build -o gnark_service .   # proof service
 - **Numbers come from raw results.** `results/**/comparison_report.json` is the
   source of truth for benchmark figures; documentation follows it, not the
   other way round.
-- **No key material or datasets in commits.** Keys are generated locally;
-  datasets are downloaded from their own sources.
+- **No proving keys in commits.** Only `keys/manifest.json` and the `.vk`
+  files are committed, and only when the pinned keys change deliberately.
 
 ## Reporting a vulnerability
 

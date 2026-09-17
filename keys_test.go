@@ -96,6 +96,32 @@ func TestSetupThenLoadEachRoleWithOnlyItsKeys(t *testing.T) {
 	}
 }
 
+func TestSetupRefusesToReplaceExistingProvingKeys(t *testing.T) {
+	keysDir, pkDir := runTestSetup(t)
+	pkPath := filepath.Join(pkDir, "norm-4.pk")
+	before, err := os.ReadFile(pkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKeys := filepath.Join(t.TempDir(), "keys")
+	if err := runSetup([]string{"--keys-dir", otherKeys, "--pk-dir", pkDir, "--norm-n", "4", "--elgamal-n", "2"}); err == nil {
+		t.Fatal("setup replaced existing proving keys without --force")
+	}
+	after, err := os.ReadFile(pkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("refused setup still changed a proving key")
+	}
+	if _, err := os.Stat(filepath.Join(otherKeys, manifestFile)); err == nil {
+		t.Fatal("refused setup still wrote a manifest")
+	}
+	if _, err := loadStore(roleProver, keysDir, pkDir); err != nil {
+		t.Fatalf("original keys no longer load after a refused setup: %v", err)
+	}
+}
+
 func TestLoadRefusesKeysThatDoNotMatchTheManifest(t *testing.T) {
 	keysDir, pkDir := runTestSetup(t)
 	flip := func(path string) {

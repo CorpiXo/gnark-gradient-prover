@@ -1,4 +1,4 @@
-module zkp_gnark_service
+module github.com/CorpiXo/gnark-gradient-prover
 
 go 1.26
 
