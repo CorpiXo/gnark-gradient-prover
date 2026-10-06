@@ -9,6 +9,7 @@ authors:
   - name: "CorpiXo"
 license: Apache-2.0
 version: 0.9.0
+date-released: "2026-10-06"
 repository-code: "https://github.com/CorpiXo/gnark-gradient-prover"
 abstract: >-
   A Groth16 proof service (gnark, BN254) for federated learning. A norm
