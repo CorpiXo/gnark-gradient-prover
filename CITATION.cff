@@ -8,10 +8,11 @@ authors:
     orcid: "https://orcid.org/0009-0006-9154-9606"
   - name: "CorpiXo"
 license: Apache-2.0
-version: 1.0.0
-date-released: "2026-09-16"
+version: 0.9.0
 repository-code: "https://github.com/CorpiXo/gnark-gradient-prover"
 abstract: >-
-  A framework and benchmark for privacy-preserving federated learning that
-  combines homomorphic encryption, Groth16 zero-knowledge proofs of bounded
-  model updates, and differential privacy, with an on-chain audit ledger.
+  A Groth16 proof service (gnark, BN254) for federated learning. A norm
+  circuit proves that a model update is bounded; an ElGamal circuit proves that
+  encrypted updates are in range and bounded against the encrypted global
+  model, binding the proof to the ciphertext the server aggregates. Separate
+  prover and verifier roles load pinned keys checked against a manifest.

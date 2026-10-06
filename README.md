@@ -1,8 +1,9 @@
 # gnark-gradient-prover
 
-A Groth16 proof service for federated learning: clients prove that the model
-update they upload is bounded and matches what the server aggregates, and the
-server verifies those proofs without seeing the update.
+A Groth16 proof service for federated learning: clients prove that their model
+update is bounded, and the server verifies the proofs. With the ElGamal circuit
+the update stays encrypted and the proof is bound to the ciphertext the server
+aggregates; with the norm circuit the proof covers a plaintext update.
 
 It is the proving backend for [ppflx](https://github.com/CorpiXo/ppflx); the
 protocol and its limitations are documented there (`docs/ZKP.md`).
