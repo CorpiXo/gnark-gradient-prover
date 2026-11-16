@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: build, vet, test
+    runs-on: ubuntu-latest
+    # The tests run setup on small circuits and finish in well under a minute on
+    # four cores; the limit leaves room for a slow runner without hiding a hang.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not gofmt-formatted:"; echo "$unformatted"; exit 1
+          fi
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -count=1 -timeout 10m ./...
+
+  integration:
+    name: integration (full-size keys)
+    runs-on: ubuntu-latest
+    # Full-size setup (norm n=256, ElGamal n=128) takes about two minutes on four
+    # cores and peaks at about 3 GB; the script itself takes seconds.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go build -o gnark_service .
+      # A local key set outside the repository, as in CONTRIBUTING.md. The
+      # committed keys/ are never touched and no proving key leaves the runner.
+      - name: Local key setup
+        run: ./gnark_service setup --keys-dir "$RUNNER_TEMP/keys" --pk-dir "$RUNNER_TEMP/pk"
+      - name: test_gnark_integration.sh
+        env:
+          FL_ZKP_KEYS_DIR: ${{ runner.temp }}/keys
+          FL_ZKP_PK_DIR: ${{ runner.temp }}/pk
+        run: ./test_gnark_integration.sh
