@@ -11,6 +11,10 @@ license: Apache-2.0
 version: 0.9.1
 date-released: "2026-11-25"
 repository-code: "https://github.com/CorpiXo/gnark-gradient-prover"
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24535914
+    description: Concept DOI (all versions)
 abstract: >-
   A Groth16 proof service (gnark, BN254) for federated learning. A norm
   circuit proves that a model update is bounded; an ElGamal circuit proves that
